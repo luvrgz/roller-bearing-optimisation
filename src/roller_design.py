@@ -23,15 +23,17 @@ COLORS = ["#F0D6C9", "#E2F3FA", "#B4E5A2"]
 INCH_TO_MM = 25.4
 
 # DIMENSIONAL CONSTRAINTS (in mm)
-L = 2 * INCH_TO_MM  # 15
+L = 0.63 * INCH_TO_MM  # 15
+# L = 15
 CLEARANCE = 0.3
-R_EXT = 1.5 * INCH_TO_MM  # 30
-R_SHAFT = 1 * INCH_TO_MM  # 6.5
+# R_EXT = 30
+# R_SHAFT = 6.5
+R_EXT = (2.44 * INCH_TO_MM) / 2  # 30
+R_SHAFT = (1.18 * INCH_TO_MM) / 2  # 6.5
 T_OUT_MIN = 5
 T_IN_MIN = 3
 ALPHA_LIM = 60  # (deg)
 RB_MIN = 2.5
-
 
 class Element:
     def __init__(self, fcshape, plane=(0, 1)):
@@ -239,7 +241,7 @@ class Part(ABC):
         :param resolution: Pas d'échantillonnage de la grille.
         :param real: SAF if false, SDF if true.
         """
-        xmin_local, ymin_local, xmax_local, ymax_local = -15, -15, 15, 15
+        xmin_local, ymin_local, xmax_local, ymax_local = -L, -15, L, 15
         self.sdf_real_or_not = real
         self.sdf_resolution = resolution
         self.sdf_local_origin = np.array([xmin_local, ymin_local])
@@ -976,6 +978,37 @@ class BearingSimulation:
         return "| rminmax:" + str([round(float(value), 2) for value in self.roller.rminmax()]) + " | " + str(self.parameters)
         # return "RB | m:" + str(self.roller.clearance) + " | " + str(len(self.storage["energy"])) + "dis. & " + str(len(self.r_storage["energy"])) + "rot. steps |"
 
+    # ROLLER BREAKING METHODS
+    def br_score(self, F_ext=10, z_uniform=True, E_star=3e9):
+        """External radial force of 10N."""
+        Nb = self.parameters["Nb"]
+        Fmax = F_ext / (2 * Nb / np.pi)
+
+        if z_uniform:  # If the slope is flat: can be approximated by Fmax/L
+            Qmax = Fmax / L
+            pomax = np.sqrt((Qmax * E_star) / (np.pi * self.parameters["RBmin"]))
+        else:  # If the slope is not flat like spheres, explanation readerbook p.288
+            # Get list of uy.ni
+            uy = np.array([0, 1])
+            rxp = self.roller.get_Rxp(offset=0)
+            ks = list()
+            for i in range(len(rxp[0]) - 1):
+                pt1 = np.array([rxp[0][i], rxp[1][i]])
+                pt2 = np.array([rxp[0][i+1], rxp[1][i+1]])
+                v = pt2 - pt1
+                ni = np.array([-v[1], v[0]]) / np.linalg.norm(np.array([-v[1], v[0]]))
+                ki = np.dot(uy, ni)
+                ks.append(ki)
+            correct = 1 / 2*sum(ks)  # Readerbook p288
+
+            wz = np.array([Fmax * correct * ki for ki in ks])
+            rbz = np.array([r for z, r in list(zip(*self.roller.get_Rxp(offset=self.roller.rmid)))[:-1]])
+
+            poz = np.sqrt((wz * E_star) / (np.pi * np.abs(rbz)))
+            pomax = np.max(poz)
+
+        return 1 / (1 + pomax)
+
     # DISLOCATION METHODS
     def d_reset(self, real=True, res=0.1):
         self.x_iring, self.theta_iring = 0, 0
@@ -1108,10 +1141,18 @@ class BearingSimulation:
 
             # Relocate roller
             self.roller.set_transform([x, y], theta)
-            sdf_roller_iring = self.roller.SDF2(X_iring, Y_iring, real=real)
-            sdf_roller_oring = self.roller.SDF2(X_oring, Y_oring, real=real)
-            sdf_inter_iring = np.maximum(sdf_roller_iring, sdf_iring)
-            sdf_inter_oring = np.maximum(sdf_roller_oring, sdf_oring)
+            if len(X_iring) != 0:
+                sdf_roller_iring = self.roller.SDF2(X_iring, Y_iring, real=real)
+                sdf_inter_iring = np.maximum(sdf_roller_iring, sdf_iring)
+            else:
+                sdf_inter_iring = np.array([1.0])
+
+            if len(X_oring) != 0:
+                sdf_roller_oring = self.roller.SDF2(X_oring, Y_oring, real=real)
+                sdf_inter_oring = np.maximum(sdf_roller_oring, sdf_oring)
+            else:
+                sdf_inter_oring = np.array([1.0])
+
             E = -min(np.min(sdf_inter_iring), np.min(sdf_inter_oring))
             # print("     energy eval: pose ", pose, "| E=", E)
             return E
@@ -1934,7 +1975,7 @@ class BearingSimulation:
             # Recompute corrected Rin
             Rin = ((m / 2 + Rb) / np.sin(np.pi / Nb)) - m - Rb
 
-        self.parameters["Rout"] = round(float(Rin + 2 * m + 2 * Rb), 3)
+        self.parameters["Rout"] = round(float(Rin + 2 * m + 2 * Rb), 3)  # Internal max radius of outer ring
         self.parameters["Nb"] = Nb
         self.parameters["Rin"] = round(float(Rin), 3)
         self.parameters["m"] = m
@@ -2005,8 +2046,8 @@ class BearingSimulation:
         # margin_score = self.parameters["m"] * self.parameters["Nb"]
 
         # Compute FBB score ~Rmin to maximize
-        fbb_score = 1 / (-17.5 + (self.parameters["Nb"]*self.parameters["RBmin"]))
-        # fbb_score = 1 / (self.parameters["RBmin"] - 1.5)
+        # fbb_score = self.br_score(z_uniform=True)
+        fbb_score = 1 / ((self.parameters["RBmin"] * self.parameters["Nb"]) - 16.5)
         fbb_score *= self.score_weight["fbb_score"]
 
         return [disloc_score, block_score, thetay0, fbb_score]  # , margin_score]
@@ -2036,7 +2077,7 @@ def showSDF(bearing, real=False, cmap='bwr', partname="roller"):
 
     # Définir les niveaux comme dans ton exemple
     # max_level = max(abs(np.min(sdf_roller)), abs(np.max(sdf_roller)))
-    max_level = 15 #  7.5
+    max_level = L #  7.5
     levels = np.linspace(-max_level, max_level, 15)
 
     # Remplissage coloré avec contours noirs
@@ -2220,13 +2261,27 @@ def baselineB_func():
         return np.interp(x, xs, -ys)
     return 0, r_func
 
-def test_bearings(N=30):
+def baselineSphere_func():
+    """Baseline orange with few contact"""
+    def r_func(x, radius=6.8):
+        x = np.asarray(x)
+        abs_x = np.abs(x)
+        condition = abs_x <= 1
+        result_inside = np.sqrt(radius - abs_x * abs_x)
+        result_outside = 0.0
+        return np.where(condition, result_inside, result_outside)
+
+    return 0, r_func
+
+def test_bearings(N=1, n_ctrl=5):
     """Function which test unstable direction of a lot of bearings"""
     for k in range(N):
-        x = np.random.uniform(2.5, 8, (5,))
-        rb = utils.make_rollerbearing(x, rext=30.0, rshaft=6.5, L=30.0)
-        rb.r_score()
-        rb.b_hess2()
+        RB_MAX0 = (np.tan(70 * np.pi / 180) * (L / (n_ctrl * 2))) + RB_MIN  # = 6.62 but set to 8 before
+        RB_MAX = min([(R_EXT - (T_OUT_MIN + T_IN_MIN + R_SHAFT + 2 * CLEARANCE)) / 2, RB_MAX0])
+        x = np.random.uniform(RB_MIN, RB_MAX, (n_ctrl,))
+        rb = utils.make_rollerbearing(x, rext=R_EXT, rshaft=R_SHAFT, L=L)
+        print(rb.score(), rb.constraints())
+        # b.b_hess2()
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -2318,18 +2373,26 @@ if __name__ == "__main__":
     # filepath = "D:\\LUCAS\\COURS\\POSTDOC\\Experiment\\Bearings\\rollerbearing\\bspbearing_reverse.FCStd"
     # filepath = "D:\\LUCAS\\COURS\\POSTDOC\\Experiment\\Bearings\\rollerbearing\\spherebearing_reverse.FCStd"
     filepath = "D:\\LUCAS\\COURS\\POSTDOC\\Experiment\\Bearings\\rollerbearing\\bspbr_Nb=8.FCStd"
-    import FreeCAD
-    doc = FreeCAD.open(filepath)
-    rol = Roller()
-    # rol.rmid, rfunc = baselineC_func()
+    # import FreeCAD
+    # doc = FreeCAD.open(filepath)
+    # rol = Roller()
+    # rol.rmid, rfunc = baselineSphere_func()
     # rol.set_Rxf(rfunc)
-    rol.importSketch(doc.Sketch001)
-    # test_sdftime(rol, 200)
+    # rol.render()
+    # rol.importSketch(doc.Sketch001)
 
-    oring = OuterRing(rol)
-    iring = InnerRing(rol)
-    rb = BearingSimulation(rol, iring, oring, rext=30.0, rshaft=6.5)
-    test_scoretime(rb)
+    path = "../data/optim_results/optim_cylbearing5.json"
+    # rb = utils.getbyrank(path, 1, w=[1, 1, 1, 0.1])
+    # rb.roller.render()
+
+    test_bearings(N=10)
+
+    # oring = OuterRing(rol)
+    # iring = InnerRing(rol)
+    # rb = BearingSimulation(rol, iring, oring, rext=30.0, rshaft=6.5)
+    # print(rb.br_score(z_uniform=True))
+    # print(rb.br_score(z_uniform=False))
+    # test_scoretime(rb)
     scs = rb.score()
     print("Sbreak: ", round(scs[3],3))
     print("Sdicloc: ", round(scs[0], 3))

@@ -1,5 +1,5 @@
 import FreeCAD as App
-import Sketcher, Part, Draft
+import Part, Draft
 from BOPTools import BOPFeatures
 import MeshPart, Mesh
 import roller_design as RD
@@ -14,8 +14,8 @@ class Extruder:
         self.filename = r"D:\LUCAS\COURS\POSTDOC\Code\data\bearing.FCStd"
         self.export_path = r"D:\LUCAS\COURS\POSTDOC\Experiment\Bearings\rollerbearing\python"
         self.y_offset = self._offset_roller()
-        self.rshaft = 6.5
-        self.rext = 30.0
+        self.rshaft = RD.R_SHAFT
+        self.rext = RD.R_EXT
         self.iring, self.oring, self.rollers = None, None, None
         self.meshes = list()
 
@@ -122,32 +122,42 @@ class Extruder:
         self.rollers.Links = rollers_list
         self.rollers.Label = "Rollers"
 
-    def _oring_slot(self):
-        box1 = self.doc.addObject("Part::Box","Oslot1")
-        box1.Length, box1.Width, box1.Height = "3mm", "15mm", "1mm"
-        box1.Placement = App.Placement(App.Vector(7.5, 29.5, -0.5), App.Rotation(90, 0, 0))
+    def _oring_slot(self, slots=True):
+        if slots:
+            box1 = self.doc.addObject("Part::Box","Oslot1")
+            box1.Length, box1.Width, box1.Height = "3mm", "15mm", "1mm"
+            box1.Placement = App.Placement(App.Vector(7.5, 29.5, -0.5), App.Rotation(90, 0, 0))
 
-        box2 = self.doc.addObject("Part::Box", "Oslot2")
-        box2.Length, box2.Width, box2.Height = "3mm", "15mm", "1mm"
-        box2.Placement = App.Placement(App.Vector(7.5, -32.5, -0.5), App.Rotation(90, 0, 0))
+            box2 = self.doc.addObject("Part::Box", "Oslot2")
+            box2.Length, box2.Width, box2.Height = "3mm", "15mm", "1mm"
+            box2.Placement = App.Placement(App.Vector(7.5, -32.5, -0.5), App.Rotation(90, 0, 0))
 
-        self.oring = self.bputils.make_multi_fuse([self.oring_rev.Name, "Oslot1", "Oslot2"])
+            self.oring = self.bputils.make_multi_fuse([self.oring_rev.Name, "Oslot1", "Oslot2"])
+
+        else:
+            self.oring = self.oring_rev
+
         self.oring.Label = "OuterRing"
         self.doc.recompute()
 
-    def _iring_slot(self):
-        box = self.doc.addObject("Part::Box", "Islot")
-        box.Length, box.Width, box.Height = "16mm", "2mm", "3mm"
-        box.Placement = App.Placement(App.Vector(-8.0, -1.0, 5.5), App.Rotation(0, 0, 0))
+    def _iring_slot(self, slots=True):
+        if slots:
+            box = self.doc.addObject("Part::Box", "Islot")
+            box.Length, box.Width, box.Height = "16mm", "2mm", "3mm"
+            box.Placement = App.Placement(App.Vector(-8.0, -1.0, 5.5), App.Rotation(0, 0, 0))
 
-        self.iring = self.bputils.make_cut([self.iring_rev.Name, "Islot"])
+            self.iring = self.bputils.make_cut([self.iring_rev.Name, "Islot"])
+
+        else:
+            self.iring = self.iring_rev
+
         self.iring.Label = "InnerRing"
         self.doc.recompute()
 
     def _save(self):
         self.doc.saveAs(self.filename)
 
-    def make(self):
+    def make(self, slots=True):
         print("FreeCAD bearing making...")
         self._roller_sketch()
         self._iring_sketch()
@@ -155,8 +165,8 @@ class Extruder:
         self._revolve("roller")
         self._revolve("iring")
         self._revolve("oring")
-        self._iring_slot()
-        self._oring_slot()
+        self._iring_slot(slots=slots)
+        self._oring_slot(slots=slots)
         self._duplicate_roller()
         self._save()
         print("✅ FreeCAD object constructed.")
@@ -181,9 +191,15 @@ class Extruder:
 
 
 if __name__ == '__main__':
-    path = "../../data/optim_results/optim_cylbearing5.json"
-    rank = 88
-    rb = utils.getbyrank(path, rank, w=[1.0, 1.0, 1.0, 0.1])
+    path = "../data/optim_results/optim_cylbearing13.json"
+    rank = 2
+    rb = utils.getbyrank(path,
+                         rank,
+                         w=[9.7e5, 0, 0, 2.23e-2],
+                         e=[1, 1, 1, 4.95],
+                         rescaled=True,
+                         rext=RD.R_EXT, rshaft=RD.R_SHAFT, L=RD.L)
+
     # path = "../../data/optim_results/optim_cylbearing2.json"
     # X, F, CV = utils.load_result_from_json(path)
     # # A faire #6#R1, #53#R9, #13#R59
@@ -200,5 +216,5 @@ if __name__ == '__main__':
 
     rb.roller.render(show=True)
     extruder = Extruder(rb)
-    extruder.make()
-    extruder.mesh(export=True, name="BRWOPT5#" + str(rank))
+    extruder.make(slots=False)
+    extruder.mesh(export=True, name="BRWOPT13#" + str(rank))

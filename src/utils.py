@@ -1,6 +1,9 @@
 import json
 import roller_design as RD
 import numpy as np
+import matplotlib.pyplot as plt
+import optim_rollerbearing as opt
+import os
 
 def make_rollerbearing(x, rext=30.0, rshaft=6.5, L=15.0):
     y_ctrl = x[1:]
@@ -38,7 +41,7 @@ def load_result_from_json(path):
     print(f"✅ Résultat chargé depuis {path}")
     return X, F, CV
 
-def getbyrank(path, rank, w=None):
+def getbyrank(path, rank, w=None, e=None, rescaled=False, **kwargs):
     """Rank from 0 to len(F)"""
     # --- Charger résultats optimisés ---
     with open(path, "r") as f:
@@ -48,13 +51,13 @@ def getbyrank(path, rank, w=None):
     F = np.array(data["F"])
 
     # Somme des carrés par ligne
-    scores = weighted_scores(F, weights=w)
+    scores = weighted_scores(F, w=w, e=e, rescaled=rescaled)
     ranks = np.argsort(scores)  # ordre croissant
     rank_values = np.empty_like(ranks)
     rank_values[ranks] = np.arange(len(ranks))
     idx = int(np.where(rank_values == rank)[0])
 
-    return make_rollerbearing(X[idx])
+    return make_rollerbearing(X[idx], **kwargs)
 
 def getbyindex(path, idx):
     with open(path, "r") as f:
@@ -63,16 +66,21 @@ def getbyindex(path, idx):
     X = np.array(data["X"])
     return make_rollerbearing(X[idx])
 
-def weighted_scores(F, weights=None):
-    #TODO: Add exponents n for calculing them
-    if weights is None:
-        weights = [1.0, 1.0, 1.0, 1.0]
-    weights = np.array(weights)
-    if F[0].shape != weights.shape:
-        raise ValueError("Vector and weights must have the same shape.")
+def weighted_scores(F, w=None, e=None, rescaled=False):
+    if w is None:
+        w = [1.0, 1.0, 1.0, 0.1]
+    if e is None:
+        e = [1.0, 1.0, 1.0, 1.0]
+    weights = np.array(w)
+    exponents = np.array(e)
+    if F[0].shape != weights.shape or F[0].shape != exponents.shape:
+        raise ValueError("Vector and weights and exponents must have the same shape.")
+
+    if rescaled:
+        F = (1 / F) - 1
 
     # Apply weights element-wise
-    weighted_vector = F * weights
+    weighted_vector = weights * np.power(F, exponents)
 
     # Calculate the standard L2 norm of the weighted vector
     return np.linalg.norm(weighted_vector, axis=1)
@@ -150,10 +158,10 @@ def weibul_curve_and_tR(lifetimes, R=0.90):
     ranks = np.arange(1, n + 1)
     failure_probs = (ranks - 0.3) / (n + 0.4)
 
-    # weibull_y = np.log(np.log(1 / (1 - failure_probs)))
-    # log_lifetimes = np.log(lifetimes)
-    weibull_y = 1 / (1 - failure_probs)
-    log_lifetimes = lifetimes
+    weibull_y = np.log(np.log(1 / (1 - failure_probs)))
+    log_lifetimes = np.log(lifetimes)
+    # weibull_y = 1 / (1 - failure_probs)
+    # log_lifetimes = lifetimes
 
     slope, intercept = np.polyfit(log_lifetimes, weibull_y, 1)
     beta = slope
@@ -162,6 +170,7 @@ def weibul_curve_and_tR(lifetimes, R=0.90):
     t_R = eta * (-np.log(R))**(1.0 / beta)
 
     print("beta: ", slope, " | eta: ", eta)
+    # print("weigth: ", slope, " | bias: ", intercept)
 
     # Optionnel : tracé (comme dans ton code)
     plt.figure(figsize=(8,6))
@@ -179,9 +188,6 @@ def weibul_curve_and_tR(lifetimes, R=0.90):
     return beta, eta, t_R
 
 def get_kb(ptx, pty):
-    import numpy as np
-    import matplotlib.pyplot as plt
-
     # Linéarisation
     X = np.log(ptx)
     Y = np.log(pty)
@@ -208,6 +214,35 @@ def get_kb(ptx, pty):
     # plt.legend()
     plt.show()
 
+def plot_score_conv(path):
+    with open(path, "r") as f:
+        data = json.load(f)
+
+    # Reconstruire les tableaux NumPy
+    X = np.array(data["history"][0])
+    # Le code original a commenté l'indice 1 (mean), nous le laissons ainsi
+    # hist_datamean = np.array(data["history"][1])
+    hist_datamin = np.array(data["history"][2])
+
+    s1 = hist_datamin[:, 0]
+    s2 = hist_datamin[:, 1]
+    s3 = hist_datamin[:, 2]
+    s4 = hist_datamin[:, 3]
+
+    # --- Utilisation de différents styles de ligne ---
+    # Styles courants : '-' (trait plein), '--' (pointillés/tirets),
+    # ':' (points), '-.' (point-trait)
+
+    plt.plot(X, s1, label="disloc", linestyle='-', color="k")  # Trait plein
+    plt.plot(X, s2, label="block", linestyle='--', color="k")  # Pointillés/Tirets
+    plt.plot(X, s3, label="thetay", linestyle=':', color="k")  # Points
+    plt.plot(X, s4, label="break", linestyle='-.', color="k")  # Point-Trait
+
+    # plt.plot(X, hist_datamean, label="mean")
+    plt.legend()
+    # plt.grid(True)
+    plt.show()
+
 if __name__=="__main__":
     # BREAKING FAILURE
     # BSPBRWN7#3: 24min, BSPBRWN7#2: 36min, BSPBRWN7#6: 49min, BSPBRWN7#5: 57min, BSPBRWN7#4: 67min
@@ -217,4 +252,17 @@ if __name__=="__main__":
     # get_kb([3 * 7, 3 * 8, 3 * 9, 3 * 11], [46 * 1850, 88 * 1850, 119.3 * 1850, 453 * 1850])
 
     # DISLOCATION FAILURE
-    weibul_curve_and_tR([28 * 1850, 29 * 1850, 53 * 1850, 182 * 1850, 1850 * 1850])
+    # BSPBWOPT5-88#0-3-4-5-6-7 FD
+    # weibul_curve_and_tR([28 * 1850, 29 * 1850, 53 * 1850, 71 * 1850, 76 * 1850, 182 * 1850]) # , 1850 * 1850])
+
+    # BRWOPT5#98:0min (Sd=1.0) ,
+    # BRWOPT5#0: 25min (pSd=0.30899),
+    # BSPBWOPT5-88#MEAN: 73min (Sd=0.24) (pSd=0.9),
+    # BRWOPT5#2: 239min (Sd=0.114) (pSd=0.11137),
+    # BRWOPT5#1:450min (Sd=0.141) (pSd=0.10918),
+    # BSPBWOPT5-45#MEAN: 582min (Sd=0.254) (pSd=0.47113)
+    # get_kb([(1/0.9) - 1, (1/0.4713) - 1], [73 * 1850, 582 * 1850])
+
+    path = "../data/optim_results/optim_cylbearing13.json"
+    # opt.dashboard_roller(path, w=[9.7e5, 0, 0, 2.23e-2], e=[1, 1, 1, 4.95], rescaled=False)  # [disloc, b_eq, thetay, fbb]
+    plot_score_conv(path)

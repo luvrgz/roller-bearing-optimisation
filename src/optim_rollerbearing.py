@@ -1,9 +1,7 @@
 from pymoo.core.problem import ElementwiseProblem, StarmapParallelization
 from pymoo.optimize import minimize
 from pymoo.algorithms.moo.nsga2 import NSGA2
-import multiprocessing
-import numpy as np
-import pandas as pd
+from pymoo.core.callback import Callback
 import utils as utils
 import roller_design as rd
 import matplotlib
@@ -12,21 +10,26 @@ import dash
 from dash import dcc, html, Input, Output
 import numpy as np
 import json
+import time
+import pandas as pd
 import plotly.express as px
 from io import BytesIO
 import base64
+from pymoo.algorithms.moo.moead import MOEAD
+from pymoo.util.ref_dirs import get_reference_directions
 
 
 # ROLLER BEARINGS
 class RollerFunctionProblem(ElementwiseProblem):
     def __init__(self, n_ctrl=5, **kwargs):
         self.n_ctrl = n_ctrl
-
-        RB_MAX = (np.tan(70 * np.pi / 180) * (rd.L / (n_ctrl * 2))) + rd.RB_MIN  # = 6.62 but set to 8 before
+        RB_MAX0 = (np.tan(70 * np.pi / 180) * (rd.L / (n_ctrl * 2))) + rd.RB_MIN  # = 6.62 but set to 8 before
+        RB_MAX = min([(rd.R_EXT - (rd.T_OUT_MIN + rd.T_IN_MIN + rd.R_SHAFT + 2 * rd.CLEARANCE)) / 2, RB_MAX0])
+        x = np.random.uniform(rd.RB_MIN, RB_MAX, (n_ctrl,))
         super().__init__(
             n_var=n_ctrl + 1,
             n_obj=4,
-            n_constr=3,
+            n_constr=3,  # 3
             xl=np.array([rd.RB_MIN] * (n_ctrl + 1)),
             xu = np.array([RB_MAX] * (n_ctrl + 1)),
             **kwargs
@@ -39,8 +42,111 @@ class RollerFunctionProblem(ElementwiseProblem):
         out["F"] = rb.score()  # the 4 scores
         # print(f"[OK] ob: {[float(round(value, 3)) for value in out["F"]]}, co: {[int(c) for c in out['G']]}, {str(rb)}")
 
+class StoreObjectivesCallback(Callback):
+    """
+    Callback pour stocker les valeurs minimales de chaque objectif
+    à la fin de chaque génération.
+    """
+    def __init__(self):
+        super().__init__()
+        self.minobjectives = []
+        self.meanobjectives = []
+        self.objectives = []
+        self.constraints = []
+        self.generations = []
 
-def dashboard_roller(path):
+    def notify(self, algorithm):
+        # Récupère la population actuelle
+        pop = algorithm.pop
+
+        # Récupère les objectifs de la population
+        F = pop.get("F")
+        G = pop.get("G")
+
+        # Stocke les données
+        self.objectives.append(F.tolist())
+        self.meanobjectives.append(float(np.mean(F)))
+        self.minobjectives.append(np.min(F, axis=0).tolist())
+        self.constraints.append(G.tolist())
+        self.generations.append(algorithm.n_gen)
+
+def run_optimisation(output_dir):
+    # PARAMETERS
+    n_pop = 50
+    n_gen = 30
+    n_ctrl = 5
+    seed = 2
+
+    info = "S: [disloc_score(realSDF), irotblock_score(pi/4 traj), thetay0, fbb_score(Nb*Rmin)], constr: [rout_constr, rin_constr, maxslope_contr] \n"
+    info += "Nctrl: " + str(n_ctrl) + "\n"
+    info += "Npop: " + str(n_pop) + "\n"
+    info += "Ngen: " + str(n_gen) + "\n"
+    info += "L: " + str(rd.L) + "\n"
+    info += "R_EXT: " + str(rd.R_EXT) + "\n"
+    info += "CLEARANCE: " + str(rd.CLEARANCE) + "\n"
+    info += "R_SHAFT: " + str(rd.R_SHAFT) + "\n"
+    info += "T_OUT_MIN: " + str(rd.T_OUT_MIN) + "\n"
+    info +="T_IN_MIN: " + str(rd.T_IN_MIN) + "\n"
+    info += "ALPHA_LIM (deg) : " + str(rd.ALPHA_LIM) + "\n"
+    info += "RB_MIN: " + str(rd.RB_MIN) + "\n"
+    info += "SEED: " + str(seed) + "\n"
+    t0 = time.time()
+
+    hc = StoreObjectivesCallback()
+    problem = RollerFunctionProblem(n_ctrl=n_ctrl)  # , elementwise_runner=runner)
+    algorithm = NSGA2(pop_size=n_pop)
+    res = minimize(problem, algorithm, termination=('n_gen', n_gen), seed=seed, verbose=True, callback=hc)
+
+    info += "T_OPTIM (min): " + str((time.time() - t0) / 60) + "\n"
+    utils.save_result_to_json(output_dir, res,
+                              infos=info,
+                              history=[hc.generations,
+                                       hc.meanobjectives,
+                                       hc.minobjectives,
+                                       hc.objectives,
+                                       hc.constraints])
+
+def run_optimisation_moead(output_dir):
+    # PARAMETERS
+    n_pop = 35
+    n_gen = 30
+    n_ctrl = 5
+
+    # ... (Le bloc 'info' reste le même) ...
+    info = "S: [disloc_score(realSDF), irotblock_score(pi/4 traj), thetay0, fbb_score(Nb*RBmin)], constr: [rout_constr, rin_constr, maxslope_contr] \n"
+    info += "Nctrl: " + str(n_ctrl) + "\n"
+    info += "Npop: " + str(n_pop) + "\n"
+    info += "Ngen: " + str(n_gen) + "\n"
+    info += "L: " + str(rd.L) + "\n"
+    info += "R_EXT: " + str(rd.R_EXT) + "\n"
+    info += "CLEARANCE: " + str(rd.CLEARANCE) + "\n"
+    info += "R_SHAFT: " + str(rd.R_SHAFT) + "\n"
+    info += "T_OUT_MIN: " + str(rd.T_OUT_MIN) + "\n"
+    info += "T_IN_MIN: " + str(rd.T_IN_MIN) + "\n"
+    info += "ALPHA_LIM (deg) : " + str(rd.ALPHA_LIM) + "\n"
+    info += "RB_MIN: " + str(rd.RB_MIN) + "\n"
+    t0 = time.time()
+
+    history_callback = StoreObjectivesCallback()
+    problem = RollerFunctionProblem(n_ctrl=n_ctrl)
+
+    # *** CHANGEMENT ICI : Utilisation de MOEAD ***
+    # La population de MOEAD est souvent égale au nombre de sous-problèmes (ici n_pop)
+    algorithm = MOEAD(
+        ref_dirs=get_reference_directions("das-dennis", problem.n_obj, n_points=n_pop),
+        prob_neighbor=0.9,
+        n_neighbors=15
+    )
+    # **********************************************
+
+    res = minimize(problem, algorithm, termination=('n_gen', n_gen), seed=42, verbose=True, callback=history_callback)
+
+    info += "T_OPTIM (min): " + str((time.time() - t0) / 60) + "\n"
+    info += "ALGO: MOEAD"
+    utils.save_result_to_json(output_dir, res, infos=info,
+                              history=[history_callback.generations, history_callback.objectives])
+
+def dashboard_roller(path, w=None, e=None, rescaled=False):
     matplotlib.use('Agg')  # backend sans interface graphique
 
     # --- Charger résultats optimisés ---
@@ -101,7 +207,7 @@ def dashboard_roller(path):
         x_idx = axis_options.index(x_axis)
         y_idx = axis_options.index(y_axis)
 
-        ranks = np.argsort(utils.weighted_scores(F))  # ordre croissant
+        ranks = np.argsort(utils.weighted_scores(F, w=w, e=e, rescaled=rescaled))  # ordre croissant
         rank_values = np.empty_like(ranks)
         rank_values[ranks] = np.arange(len(ranks))
 
@@ -137,7 +243,7 @@ def dashboard_roller(path):
         type_fail = [1, 2, 2, 0][type_fail]
         fig2, ax2 = plt.subplots()
         rb.roller.render(ax=ax2, show=False, color=type_fail)
-        ax2.set_aspect('equal')
+        # ax2.set_aspect('equal')
         ax2.axis("off")
 
         buf2 = BytesIO()
@@ -152,20 +258,13 @@ def dashboard_roller(path):
     app.run(debug=True)
 
 
-def run_optimisation(output_dir):
-    problem = RollerFunctionProblem(n_ctrl=5)  # , elementwise_runner=runner)
-    algorithm = NSGA2(pop_size=50)
-    res = minimize(problem, algorithm, termination=('n_gen', 70), seed=42, verbose=True)
-    info = "70gen, popsize50, score: [disloc_score(realSDF), irotblock_score(pi/4 traj), thetay0, fbb_score(N*Rmin)], constr: [rout_constr, rin_constr, maxslope_contr], info:L = 2 * INCH_TO_MM  # 15. CLEARANCE = 0.3. R_EXT = 1.5 * INCH_TO_MM  # 30. R_SHAFT = 1 * INCH_TO_MM  # 6.5. T_OUT_MIN = 5. T_IN_MIN = 3. ALPHA_LIM = 60  # (deg). RB_MIN = 2.5"
-    utils.save_result_to_json(output_dir, res, infos=info)
-
-
 if __name__ == "__main__":
-    path = "../data/optim_results/optim_cylbearing7.json"
+    path = "../data/optim_results/optim_cylbearing15.json"
     run_optimisation(path)
-    # dashboard_roller(path)
 
-    # rb = utils.getbyrank(path, 45)
+    # dashboard_roller(path, w=[9.7e5, 0, 0, 2.23e-2], e=[1, 1, 1, 4.95], rescaled=True)
+
+    # rb = utils.getbyrank(path, 2, w=[9.7e5, 0, 0, 2.23e-2], e=[1, 1, 1, 4.95], rescaled=True)
     # rb.roller.render()
     # rb.acc_grid = 200
     # rb.d_score(N=5, clearance_factor=2.0)

@@ -9,11 +9,13 @@ Assuming that conda already installed.
 conda create -n env-name rollerbearingenv python=3.11
 conda activate rollerbearingenv
 conda install conda-forge::freecad
-pip install scipy, plotly, pymoo, dash
+pip install scipy, plotly, pymoo, dash, pandas
 
 # PROJECT INSTALLATION
 git clone https://github.com/luvrgz/roller-bearing-optimisation.git
 ```
+If error No module named 'FreeCAD', the Library/bin and Library/Mod paths have to be added in the environnement variables.
+If error FreeCADGui process not found (when importing Draft module), comment line 39 import FreeCADGui as Gui in Mod/Draft/draftutils/ini_draft_statusbar.py.
 
 ## Usage
 ### External constraints
@@ -42,9 +44,9 @@ See optimisation results:
 optim_roller_bearing.py dashboard(path) to see the generated shapes.
 
 ### Generate STL
-
+Run rollerbearing_extruder.py
 
 ## Experiments
 The experimental data are stored in ... (explain the generated data)
 
-Get lifetime parameters from scores: SKF_GBLM
+Get lifetime parameters from scores: utils.get_kb ...
