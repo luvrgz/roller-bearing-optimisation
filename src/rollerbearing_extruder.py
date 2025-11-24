@@ -11,8 +11,8 @@ class Extruder:
     def __init__(self, rollerbearing: RD.BearingSimulation):
         self.rb = rollerbearing
         self.doc = App.newDocument("RevolutionExample")
-        self.filename = r"D:\LUCAS\COURS\POSTDOC\Code\data\bearing.FCStd"
-        self.export_path = r"D:\LUCAS\COURS\POSTDOC\Experiment\Bearings\rollerbearing\python"
+        self.filename = "../data/experiments/bearing.FCStd"
+        self.export_path = "../data/experiments/rollerbearing-stl"
         self.y_offset = self._offset_roller()
         self.rshaft = RD.R_SHAFT
         self.rext = RD.R_EXT
@@ -191,30 +191,14 @@ class Extruder:
 
 
 if __name__ == '__main__':
-    path = "../data/optim_results/optim_cylbearing13.json"
-    rank = 2
-    rb = utils.getbyrank(path,
-                         rank,
-                         w=[9.7e5, 0, 0, 2.23e-2],
-                         e=[1, 1, 1, 4.95],
-                         rescaled=True,
-                         rext=RD.R_EXT, rshaft=RD.R_SHAFT, L=RD.L)
-
-    # path = "../../data/optim_results/optim_cylbearing2.json"
-    # X, F, CV = utils.load_result_from_json(path)
-    # # A faire #6#R1, #53#R9, #13#R59
-    # name = "#6#R1"
-    # idx = int(name.split("#")[1])
-    # rb = utils.make_rollerbearing(X[idx])
-
-    # r = RD.Roller()
-    # r = r.load(r"D:\\LUCAS\\COURS\\POSTDOC\\Code\\data\\rollers\\BSPN7.json")
-    # oring = RD.OuterRing(r)
-    # iring = RD.InnerRing(r)
-    # rb = RD.BearingSimulation(r, iring, oring)
-    # rb.get_parameters(Nb=7)  # force recompute with Nb
+    path = "../data/optim_results/optim_cylbearing15.json"
+    rb = utils.select_best(path,
+                           w=[9.7e5, 0, 0, 2.23e-2],  # coefficients found in our paper
+                           e=[1, 1, 1, 4.95],  # coefficients found in our paper
+                           rescaled=True,
+                           rext=RD.R_EXT, rshaft=RD.R_SHAFT, L=RD.L)
 
     rb.roller.render(show=True)
     extruder = Extruder(rb)
     extruder.make(slots=False)
-    extruder.mesh(export=True, name="BRWOPT13#" + str(rank))
+    extruder.mesh(export=True, name="BRWOPT15#BEST")

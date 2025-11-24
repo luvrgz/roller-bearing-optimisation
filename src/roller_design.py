@@ -23,13 +23,13 @@ COLORS = ["#F0D6C9", "#E2F3FA", "#B4E5A2"]
 INCH_TO_MM = 25.4
 
 # DIMENSIONAL CONSTRAINTS (in mm)
-L = 0.63 * INCH_TO_MM  # 15
-# L = 15
+# L = 0.63 * INCH_TO_MM  # 15
+L = 15
 CLEARANCE = 0.3
-# R_EXT = 30
-# R_SHAFT = 6.5
-R_EXT = (2.44 * INCH_TO_MM) / 2  # 30
-R_SHAFT = (1.18 * INCH_TO_MM) / 2  # 6.5
+R_EXT = 30
+R_SHAFT = 6.5
+# R_EXT = (2.44 * INCH_TO_MM) / 2  # 30
+# R_SHAFT = (1.18 * INCH_TO_MM) / 2  # 6.5
 T_OUT_MIN = 5
 T_IN_MIN = 3
 ALPHA_LIM = 60  # (deg)
@@ -979,9 +979,12 @@ class BearingSimulation:
         # return "RB | m:" + str(self.roller.clearance) + " | " + str(len(self.storage["energy"])) + "dis. & " + str(len(self.r_storage["energy"])) + "rot. steps |"
 
     # ROLLER BREAKING METHODS
-    def br_score(self, F_ext=10, z_uniform=True, E_star=3e9):
+    def br_score(self, F_ext=10, z_uniform=True, E_star=3e9, simple=False):
         """External radial force of 10N."""
         Nb = self.parameters["Nb"]
+        if simple:
+            return 1 / ((self.parameters["RBmin"] * self.parameters["Nb"]) - 16.5)
+
         Fmax = F_ext / (2 * Nb / np.pi)
 
         if z_uniform:  # If the slope is flat: can be approximated by Fmax/L
@@ -1957,7 +1960,13 @@ class BearingSimulation:
         dx = self.roller.mid_width / len(self.roller.Rxp[0])
         return npts * dx
 
-    def get_parameters(self, Nb=None, rext=None, rshaft=None):
+    def get_parameters(self, Nb=None, rext=None, rshaft=None, max_out=True):
+        """
+        Nb is the fixed number of rollers, estimated if None, rext and rshaft are just used to store in the dict --> deprecated, use glbal parameters instead
+        If max_out is True, Nb is estimated by fixing the internal maximal radius of the outer ring to the max. Done in the inner ring if set to False.
+        Output the parameters of the bearing: Rout is the internal maximal radius of the outer ring, Rin the external minimal radius of the inner ring.
+        See Figure 3 of the paper for clearer description.
+        """
         m = self.roller.clearance
         if hasattr(self.roller, "Rxp"):
             Rb = self.roller.rminmax()[1]  # equal to rmax
@@ -1968,10 +1977,12 @@ class BearingSimulation:
             Rin = ((Rb + (m/2)) / np.sin(np.pi / Nb)) - m - Rb
             print("Rin constraint not checked, Rin=", Rin)
         else:
-            # Assume Rin = 12.0
-            Rin = R_SHAFT + T_IN_MIN
+            if max_out:
+                Rin = R_EXT - T_OUT_MIN - 2 * CLEARANCE - 2 * Rb
+            else:
+                Rin = R_SHAFT + T_IN_MIN
             # Compute Nb, round it to superior to get an int
-            Nb = int(np.ceil(np.pi / np.arcsin((m / 2 + Rb) / (Rin + m + Rb))))
+            Nb = int(np.ceil(np.pi / np.arcsin((m / 2 + Rb) / (Rin + m + Rb)))) - 1
             # Recompute corrected Rin
             Rin = ((m / 2 + Rb) / np.sin(np.pi / Nb)) - m - Rb
 

@@ -19,7 +19,7 @@ If error FreeCADGui process not found (when importing Draft module), comment lin
 
 ## Usage
 ### External constraints
-Define dimensional constraints in roller_design.py: 
+Define dimensional constraints in roller_design.py (line 25 to 37). All constraints are defined in mm. 
 ```
 L = 15 --> Bearing width
 CLEARANCE = 0.3  --> Clearance between the parts in the bearing
@@ -31,20 +31,19 @@ ALPHA_LIM = 60  # (deg)  --> Maximal printing angle
 RB_MIN = 2.5   --> Minimum radius of the roller
 ```
 
-### Bearing simulation
-Objectives functions computed in BearingSimulation.scores(), and contraints functions in BearingSimulation.constraints().
-
 ### Design optimisation
-To run the optimisation:
+To run the optimisation with the constraints:
+
 ```
-optim_roller_bearing.py, stored in the path
+optim_roller_bearing.py
 ```
 
+Set the path where to store the results of the optimisation.
 See optimisation results:
 optim_roller_bearing.py dashboard(path) to see the generated shapes.
 
 ### Generate STL
-Run rollerbearing_extruder.py
+Run rollerbearing_extruder.py with the corresponding optimisation path to generate the best design of the optimisation.
 
 ## Experiments
 The experimental data are stored in ... (explain the generated data)

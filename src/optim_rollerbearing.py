@@ -75,7 +75,7 @@ def run_optimisation(output_dir):
     n_pop = 50
     n_gen = 30
     n_ctrl = 5
-    seed = 2
+    seed = 3
 
     info = "S: [disloc_score(realSDF), irotblock_score(pi/4 traj), thetay0, fbb_score(Nb*Rmin)], constr: [rout_constr, rin_constr, maxslope_contr] \n"
     info += "Nctrl: " + str(n_ctrl) + "\n"
@@ -259,26 +259,7 @@ def dashboard_roller(path, w=None, e=None, rescaled=False):
 
 
 if __name__ == "__main__":
-    path = "../data/optim_results/optim_cylbearing15.json"
+    path = "../data/optim_results/optim_cylbearing17.json"
     run_optimisation(path)
 
     # dashboard_roller(path, w=[9.7e5, 0, 0, 2.23e-2], e=[1, 1, 1, 4.95], rescaled=True)
-
-    # rb = utils.getbyrank(path, 2, w=[9.7e5, 0, 0, 2.23e-2], e=[1, 1, 1, 4.95], rescaled=True)
-    # rb.roller.render()
-    # rb.acc_grid = 200
-    # rb.d_score(N=5, clearance_factor=2.0)
-    # print()
-    # rb = utils.getbyindex(path, 3)
-    # rb.acc_grid = 50
-    # rb.r_score(n_samples=5, tol=1e-2, max_iter=20, clearance_factor=2.0, silent=False)
-    # rb.b_function(N=20, show=True)
-
-#
-    # ext=HE.Extruder(rb)
-    # rmax = max(best_bp.loop_sun.rmax, best_bp.loop_sat.rmax, best_bp.loop_or.rmax)
-    # alpha_max = 60
-#
-    # ext.twist_func = HE.linear_rev(alpha_max=alpha_max, rmax=rmax)
-    # ext.extrude(nsat=None, nslices=15)
-    # ext.export("opt2.stl")
