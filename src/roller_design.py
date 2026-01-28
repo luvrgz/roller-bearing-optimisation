@@ -19,17 +19,18 @@ import json
 import time
 import math
 
+# Colors (red, blue, green)
 COLORS = ["#F0D6C9", "#E2F3FA", "#B4E5A2"]
 INCH_TO_MM = 25.4
 
 # DIMENSIONAL CONSTRAINTS (in mm)
-# L = 0.63 * INCH_TO_MM  # 15
-L = 15
+L = 2 * INCH_TO_MM  # 15
+# L = 15
 CLEARANCE = 0.3
 R_EXT = 30
 R_SHAFT = 6.5
-# R_EXT = (2.44 * INCH_TO_MM) / 2  # 30
-# R_SHAFT = (1.18 * INCH_TO_MM) / 2  # 6.5
+R_EXT = (4 * INCH_TO_MM) / 2  # 30
+# R_SHAFT = (2 * INCH_TO_MM) / 2  # 6.5
 T_OUT_MIN = 5
 T_IN_MIN = 3
 ALPHA_LIM = 60  # (deg)
@@ -264,13 +265,14 @@ class Part(ABC):
             self.sdf_grid = None
             print(f"Error during SDF grid caching: {e}") if not silent else None
 
-    def render(self, ax=None, show=True, plot_rotcenter=False, color=0):
+    def render(self, ax=None, show=True, plot_rotcenter=False, color=0, alpha=0.7, filled=True):
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 8))
         poly = self.polygon()
         x, y = poly.exterior.xy
-        ax.plot(x, y, color="black")
-        ax.fill(x, y, color=COLORS[color], alpha=0.7, label=self.__str__())
+        ax.plot(x, y, color="black", linewidth=1.0)
+        if filled:
+            ax.fill(x, y, color=COLORS[color], alpha=alpha, label=self.__str__())
         if plot_rotcenter:
             ax.scatter(self.rot_center[0], self.rot_center[1], c="k", marker="o", s=100, alpha=0.7)
             ax.grid(True)
@@ -1330,7 +1332,7 @@ class BearingSimulation:
         for x_iring in np.linspace(0, -max_iring_dist, N):
             self.d_step2(x_iring, 0.0, method=method, silent=silent, real=real)
             # self.d_step(x_iring, 0.0, method=method, silent=silent)
-        disloc_score = 1 / (10 * max(np.max(self.d_storage["energy"]), 0) + 1.0)
+        disloc_score = 1 / (max(np.max(self.d_storage["energy"]), 0) + 1.0)
         self.roller.clearance /= clearance_factor
         return disloc_score
 
@@ -2031,8 +2033,7 @@ class BearingSimulation:
         """SCORES TO MINIMIZE (must be between 0 and 1)"""
         # Compute dislocation score
         self.acc_grid = 200
-        disloc_score = self.d_score(N=10, clearance_factor=1.0, real=True, res=0.05)
-        disloc_score *= self.score_weight["disloc_score"]
+        disloc_score = self.d_score(N=10, clearance_factor=1.0, real=False, res=0.05)
 
         # Compute inner rotation score
         self.acc_grid = 50
@@ -2042,13 +2043,11 @@ class BearingSimulation:
             thetay0 = 1.0
         else:
             thetay0 = (2 * self.r_storage["thetay0"]) / np.pi
-        thetay0 *= self.score_weight["thetay0"]
 
         # Compute block_score
         self.acc_grid = 200
         eq_metric = self.b_functiontraj(N=20, alpha=np.pi/4, show=False)
         block_score = 1 / (eq_metric + 1.0)
-        block_score *= self.score_weight["block_score"]
 
         # Compute friction score
         # fric_score = self.friction_length(eps=0.1)  # Doesn play a great role in practice
@@ -2058,8 +2057,7 @@ class BearingSimulation:
 
         # Compute FBB score ~Rmin to maximize
         # fbb_score = self.br_score(z_uniform=True)
-        fbb_score = 1 / ((self.parameters["RBmin"] * self.parameters["Nb"]) - 16.5)
-        fbb_score *= self.score_weight["fbb_score"]
+        fbb_score = 1 / ((self.parameters["RBmin"] * self.parameters["Nb"]) + 1)
 
         return [disloc_score, block_score, thetay0, fbb_score]  # , margin_score]
 
@@ -2286,13 +2284,27 @@ def baselineSphere_func():
 
 def test_bearings(N=1, n_ctrl=5):
     """Function which test unstable direction of a lot of bearings"""
+    diffs_score = list()
+    diffs_tps = list()
     for k in range(N):
         RB_MAX0 = (np.tan(70 * np.pi / 180) * (L / (n_ctrl * 2))) + RB_MIN  # = 6.62 but set to 8 before
         RB_MAX = min([(R_EXT - (T_OUT_MIN + T_IN_MIN + R_SHAFT + 2 * CLEARANCE)) / 2, RB_MAX0])
         x = np.random.uniform(RB_MIN, RB_MAX, (n_ctrl,))
-        rb = utils.make_rollerbearing(x, rext=R_EXT, rshaft=R_SHAFT, L=L)
-        print(rb.score(), rb.constraints())
-        # b.b_hess2()
+        rb = utils.make_rollerbearing(x)
+        # print(rb.score(), rb.constraints())
+        t0 = time.time()
+        s_sdf = rb.d_score(silent=False, real=True)  # SDF
+        t1 = time.time()
+        tsdf = t1 - t0
+        s_saf = rb.d_score(silent=False, real=False)  # SAF
+        tsaf = time.time() - t1
+        diff_score = s_saf / s_sdf
+        diff_tps = tsaf / tsdf
+        diffs_score.append(diff_score)
+        diffs_tps.append(diff_tps)
+
+    print("Error score:", sum(diffs_score) / len(diffs_score))
+    print("Time diff:", sum(diffs_tps) / len(diffs_tps))
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -2396,7 +2408,7 @@ if __name__ == "__main__":
     # rb = utils.getbyrank(path, 1, w=[1, 1, 1, 0.1])
     # rb.roller.render()
 
-    test_bearings(N=10)
+    test_bearings(N=20)
 
     # oring = OuterRing(rol)
     # iring = InnerRing(rol)
@@ -2404,11 +2416,11 @@ if __name__ == "__main__":
     # print(rb.br_score(z_uniform=True))
     # print(rb.br_score(z_uniform=False))
     # test_scoretime(rb)
-    scs = rb.score()
-    print("Sbreak: ", round(scs[3],3))
-    print("Sdicloc: ", round(scs[0], 3))
-    print("Sblock1: ", round(scs[2], 3))
-    print("Sblock2: ", round(scs[1], 3))
+    # scs = rb.score()
+    # print("Sbreak: ", round(scs[3],3))
+    # print("Sdicloc: ", round(scs[0], 3))
+    # print("Sblock1: ", round(scs[2], 3))
+    # print("Sblock2: ", round(scs[1], 3))
     # rb = utils.make_rollerbearing(np.array([4.5, 5, 5.5, 5.5, 5, 1.5, 5, 5]), rext=30.0, rshaft=6.5)
     # rb.d_score_rot(N=30, max_iring_angle=np.pi / 4, clearance_factor=2.0, method="Powell", silent=False)  # method="L-BFGS-B"
     # rb.d_step(0.0, 0.2, silent=True, method="L-BFGS-B")

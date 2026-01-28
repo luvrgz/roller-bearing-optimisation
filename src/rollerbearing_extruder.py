@@ -125,12 +125,12 @@ class Extruder:
     def _oring_slot(self, slots=True):
         if slots:
             box1 = self.doc.addObject("Part::Box","Oslot1")
-            box1.Length, box1.Width, box1.Height = "3mm", "15mm", "1mm"
-            box1.Placement = App.Placement(App.Vector(7.5, 29.5, -0.5), App.Rotation(90, 0, 0))
+            box1.Length, box1.Width, box1.Height = "3mm", str(RD.L) + "mm", "1mm"
+            box1.Placement = App.Placement(App.Vector(RD.L / 2, RD.R_EXT - 0.5, -0.5), App.Rotation(90, 0, 0))
 
             box2 = self.doc.addObject("Part::Box", "Oslot2")
-            box2.Length, box2.Width, box2.Height = "3mm", "15mm", "1mm"
-            box2.Placement = App.Placement(App.Vector(7.5, -32.5, -0.5), App.Rotation(90, 0, 0))
+            box2.Length, box2.Width, box2.Height = "3mm", str(RD.L) + "mm", "1mm"
+            box2.Placement = App.Placement(App.Vector(RD.L / 2, -RD.R_EXT - 2.5, -0.5), App.Rotation(90, 0, 0))
 
             self.oring = self.bputils.make_multi_fuse([self.oring_rev.Name, "Oslot1", "Oslot2"])
 
@@ -143,8 +143,9 @@ class Extruder:
     def _iring_slot(self, slots=True):
         if slots:
             box = self.doc.addObject("Part::Box", "Islot")
-            box.Length, box.Width, box.Height = "16mm", "2mm", "3mm"
-            box.Placement = App.Placement(App.Vector(-8.0, -1.0, 5.5), App.Rotation(0, 0, 0))
+            length = RD.L + 1
+            box.Length, box.Width, box.Height = str(length) + "mm", "2mm", "3mm"
+            box.Placement = App.Placement(App.Vector(-length, -1.0, RD.R_SHAFT - 1), App.Rotation(0, 0, 0))
 
             self.iring = self.bputils.make_cut([self.iring_rev.Name, "Islot"])
 
@@ -191,14 +192,10 @@ class Extruder:
 
 
 if __name__ == '__main__':
-    path = "../data/optim_results/optim_cylbearing15.json"
-    rb = utils.select_best(path,
-                           w=[9.7e5, 0, 0, 2.23e-2],  # coefficients found in our paper
-                           e=[1, 1, 1, 4.95],  # coefficients found in our paper
-                           rescaled=True,
-                           rext=RD.R_EXT, rshaft=RD.R_SHAFT, L=RD.L)
-
+    path = "../data/optim_results/optim_cylbearing9.json"
+    # rb = utils.select_best(path)
+    rb = utils.getbyrank(path, 2)
     rb.roller.render(show=True)
     extruder = Extruder(rb)
-    extruder.make(slots=False)
-    extruder.mesh(export=True, name="BRWOPT15#BEST")
+    extruder.make(slots=True)
+    extruder.mesh(export=True, name="9#2_team1")
